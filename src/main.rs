@@ -13,6 +13,7 @@ struct State {
     sc_desc: wgpu::SwapChainDescriptor,
     swap_chain: wgpu::SwapChain,
     size: winit::dpi::PhysicalSize<u32>,
+    clear_color: wgpu::Color,
 }
 
 impl State {
@@ -48,6 +49,8 @@ impl State {
             present_mode: wgpu::PresentMode::Fifo,
         };
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
+
+        let clear_color = wgpu::Color::BLACK;
         Self {
             surface,
             device,
@@ -55,6 +58,7 @@ impl State {
             sc_desc,
             swap_chain,
             size,
+            clear_color,
         }
     }
 
@@ -66,13 +70,44 @@ impl State {
         todo!()
     }
     fn input(&mut self, event: &WindowEvent) -> bool {
-        todo!()
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.clear_color = wgpu::Color {
+                    r: position.x as f64/self.size.width as f64,
+                    g: position.y as f64/self.size.height as f64,
+                    b: 1.0,
+                    a: 1.0,
+                };
+                true
+            }
+            _ => false,
+        }
     }
-    fn update(&mut self) {
-        todo!()
-    }
+    fn update(&mut self) {}
     fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
-        todo!()
+        let frame = self.swap_chain.get_current_frame()?.output;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+        // Within blocks so to drop encoder otherwise we cannot be allowed to pass it off into the queue
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: &frame.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.clear_color),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
     }
 }
 
@@ -87,12 +122,6 @@ fn main() {
             ref event,
             window_id,
         } if window_id == window.id() => match event {
-            WindowEvent::Resized(physical_size) => {
-                state.resize(*physical_size);
-            }
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                state.resize(**new_inner_size);
-            }
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
             WindowEvent::KeyboardInput { input, .. } => match input {
                 KeyboardInput {
@@ -102,8 +131,29 @@ fn main() {
                 } => *control_flow = ControlFlow::Exit,
                 _ => {}
             },
+            WindowEvent::Resized(physical_size) => {
+                state.resize(*physical_size);
+            }
+            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                state.resize(**new_inner_size);
+            }
+            WindowEvent::CursorMoved { .. } => {
+                state.input(event);
+            }
             _ => {}
         },
+        Event::RedrawRequested(_) => {
+            state.update();
+            match state.render() {
+                Ok(_) => {}
+                Err(wgpu::SwapChainError::Lost) => state.resize(state.size),
+                Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                Err(e) => eprint!("{:?}", e),
+            }
+        }
+        Event::MainEventsCleared => {
+            window.request_redraw();
+        }
         _ => {}
     });
 }
