@@ -6,6 +6,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -14,6 +15,7 @@ struct State {
     swap_chain: wgpu::SwapChain,
     size: winit::dpi::PhysicalSize<u32>,
     clear_color: wgpu::Color,
+    render_pipleline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -51,6 +53,70 @@ impl State {
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
         let clear_color = wgpu::Color::BLACK;
+
+        let vs_src = include_str!("shader.vert");
+        let fs_src = include_str!("shader.frag");
+       /*  let mut compiler = shaderc::Compiler::new().unwrap();
+        let vs_spirv = compiler
+            .compile_into_spirv(
+                vs_src,
+                shaderc::ShaderKind::Vertex,
+                "shader.vert",
+                "main",
+                None,
+            )
+            .unwrap();
+        let fs_spirv = compiler
+            .compile_into_spirv(
+                fs_src,
+                shaderc::ShaderKind::Fragment,
+                "shader.frag",
+                "main",
+                None,
+            )
+            .unwrap();
+        let vs_data = wgpu::util::make_spirv(vs_spirv.as_binary_u8());
+        let fs_data = wgpu::util::make_spirv(fs_spirv.as_binary_u8()); */
+        let vs_module = device.create_shader_module(&wgpu::include_spirv!("shader.vert.spv"));
+        let fs_module = device.create_shader_module(&wgpu::include_spirv!("shader.frag.spv"));
+        let render_pipleline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipleline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+        let render_pipleline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipleline_layout),
+            vertex: wgpu::VertexState {
+                module: &vs_module,
+                entry_point: "main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &fs_module,
+                entry_point: "main",
+                targets: &[wgpu::ColorTargetState {
+                    format: sc_desc.format,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: wgpu::CullMode::Back,
+                polygon_mode: wgpu::PolygonMode::Fill,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+        });
         Self {
             surface,
             device,
@@ -59,6 +125,7 @@ impl State {
             swap_chain,
             size,
             clear_color,
+            render_pipleline
         }
     }
 
@@ -73,8 +140,8 @@ impl State {
         match event {
             WindowEvent::CursorMoved { position, .. } => {
                 self.clear_color = wgpu::Color {
-                    r: position.x as f64/self.size.width as f64,
-                    g: position.y as f64/self.size.height as f64,
+                    r: position.x as f64 / self.size.width as f64,
+                    g: position.y as f64 / self.size.height as f64,
                     b: 1.0,
                     a: 1.0,
                 };
@@ -93,7 +160,7 @@ impl State {
             });
         // Within blocks so to drop encoder otherwise we cannot be allowed to pass it off into the queue
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                     attachment: &frame.view,
@@ -105,7 +172,10 @@ impl State {
                 }],
                 depth_stencil_attachment: None,
             });
+            render_pass.set_pipeline(&self.render_pipleline);
+            render_pass.draw(0..3,0..1);
         }
+
         self.queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
