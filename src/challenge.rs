@@ -13,7 +13,6 @@ struct State {
     sc_desc: wgpu::SwapChainDescriptor,
     swap_chain: wgpu::SwapChain,
     size: winit::dpi::PhysicalSize<u32>,
-    clear_color: wgpu::Color,
     render_pipleline: wgpu::RenderPipeline,
     challenge_render_pipleline: wgpu::RenderPipeline,
     use_color: bool,
@@ -53,7 +52,6 @@ impl State {
         };
         let swap_chain = device.create_swap_chain(&surface, &sc_desc);
 
-        let clear_color = wgpu::Color::BLACK;
 
         let vs_module = device.create_shader_module(&wgpu::include_spirv!("shader.vert.spv"));
         let fs_module = device.create_shader_module(&wgpu::include_spirv!("shader.frag.spv"));
@@ -131,7 +129,7 @@ impl State {
                     alpha_to_coverage_enabled: false,
                 },
             });
-        let use_color = false;
+        let use_color = true;
         Self {
             surface,
             device,
@@ -139,7 +137,6 @@ impl State {
             sc_desc,
             swap_chain,
             size,
-            clear_color,
             render_pipleline,
             challenge_render_pipleline,
             use_color,
@@ -221,26 +218,28 @@ fn main() {
         Event::WindowEvent {
             ref event,
             window_id,
-        } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-            WindowEvent::KeyboardInput { input, .. } => match input {
-                KeyboardInput {
-                    state: ElementState::Pressed,
-                    virtual_keycode: Some(VirtualKeyCode::Escape),
-                    ..
-                } => *control_flow = ControlFlow::Exit,
+        } if window_id == window.id() => if !state.input(event) {
+            match event {
+                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::KeyboardInput { input, .. } => match input {
+                    KeyboardInput {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(VirtualKeyCode::Escape),
+                        ..
+                    } => *control_flow = ControlFlow::Exit,
+                    _ => {}
+                },
+                WindowEvent::Resized(physical_size) => {
+                    state.resize(*physical_size);
+                }
+                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                    state.resize(**new_inner_size);
+                }
+                WindowEvent::CursorMoved { .. } => {
+                    state.input(event);
+                }
                 _ => {}
-            },
-            WindowEvent::Resized(physical_size) => {
-                state.resize(*physical_size);
             }
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                state.resize(**new_inner_size);
-            }
-            WindowEvent::CursorMoved { .. } => {
-                state.input(event);
-            }
-            _ => {}
         },
         Event::RedrawRequested(_) => {
             state.update();
