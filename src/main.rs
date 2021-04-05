@@ -47,6 +47,7 @@ const VERTICES: &[Vertex] = &[
 
 const INDICES: &[u16] = &[0,1,4,1,2,4,2,3,4];
 
+
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -59,6 +60,12 @@ struct State {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices:u32,
+    
+    challenge_vertex_buffer: wgpu::Buffer,
+    challenge_index_buffer: wgpu::Buffer,
+    challenge_num_indices:u32,
+    use_switch: bool,
+    
 }
 
 impl State {
@@ -148,6 +155,30 @@ impl State {
             usage: wgpu::BufferUsage::INDEX
         });
         let num_indices = INDICES.len() as u32;
+
+        let num_vertices = 16;
+        let angle = std::f32::consts::PI * 2.0 / num_vertices as f32;
+        let challenge_verts = (0..num_vertices).map(|i| {
+            let theta = angle * i as f32;
+            Vertex { position: [0.5+theta.cos(), - 0.5* theta.sin(), 0.0],color:[(1.0+theta.cos())/2.0,(1.0+theta.sin())/2.0,1.0],}
+        }).collect::<Vec<_>>();
+
+        let num_triangles = num_vertices-2;
+        let challenge_indices = (1u16..num_triangles+1).into_iter().flat_map(|i| vec![i+1,i,0]).collect::<Vec<_>>();
+        let challenge_num_indices = challenge_indices.len() as u32;
+
+        let challenge_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(&challenge_verts),
+            usage: wgpu::BufferUsage::VERTEX,
+        });
+        let challenge_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
+            label: Some("Index buffer"),
+            contents: bytemuck::cast_slice(&challenge_indices),
+            usage: wgpu::BufferUsage::INDEX
+        });
+       
+        let use_switch = false;
         Self {
             surface,
             device,
@@ -160,6 +191,10 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices,
+            challenge_vertex_buffer,
+            challenge_index_buffer,
+            challenge_num_indices,
+            use_switch,
         }
     }
 
@@ -172,13 +207,8 @@ impl State {
     }
     fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
-            WindowEvent::CursorMoved { position, .. } => {
-                self.clear_color = wgpu::Color {
-                    r: position.x as f64 / self.size.width as f64,
-                    g: position.y as f64 / self.size.height as f64,
-                    b: 1.0,
-                    a: 1.0,
-                };
+            WindowEvent::KeyboardInput{ input: KeyboardInput{ state,virtual_keycode:Some(VirtualKeyCode::Space),..},..}=>{
+                self.use_switch = *state ==ElementState::Pressed;
                 true
             }
             _ => false,
@@ -206,10 +236,17 @@ impl State {
                 }],
                 depth_stencil_attachment: None,
             });
+
+            let data = if self.use_switch {
+                (&self.challenge_vertex_buffer,&self.challenge_index_buffer,self.challenge_num_indices)
+            } else {
+                (&self.vertex_buffer,&self.index_buffer,self.num_indices)
+            };
+
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices,0,0..1);
+            render_pass.set_vertex_buffer(0, data.0.slice(..));
+            render_pass.set_index_buffer(data.1.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..data.2,0,0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -227,26 +264,30 @@ fn main() {
         Event::WindowEvent {
             ref event,
             window_id,
-        } if window_id == window.id() => match event {
-            WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-            WindowEvent::KeyboardInput { input, .. } => match input {
-                KeyboardInput {
-                    state: ElementState::Pressed,
-                    virtual_keycode: Some(VirtualKeyCode::Escape),
-                    ..
-                } => *control_flow = ControlFlow::Exit,
-                _ => {}
-            },
-            WindowEvent::Resized(physical_size) => {
-                state.resize(*physical_size);
+        } if window_id == window.id() => {
+            if !state.input(event){
+                match event {
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                    WindowEvent::KeyboardInput { input, .. } => match input {
+                        KeyboardInput {
+                            state: ElementState::Pressed,
+                            virtual_keycode: Some(VirtualKeyCode::Escape),
+                            ..
+                        } => *control_flow = ControlFlow::Exit,
+                        _ => {}
+                    },
+                    WindowEvent::Resized(physical_size) => {
+                        state.resize(*physical_size);
+                    }
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        state.resize(**new_inner_size);
+                    }
+                    WindowEvent::CursorMoved { .. } => {
+                        state.input(event);
+                    }
+                    _ => {}
+                }
             }
-            WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                state.resize(**new_inner_size);
-            }
-            WindowEvent::CursorMoved { .. } => {
-                state.input(event);
-            }
-            _ => {}
         },
         Event::RedrawRequested(_) => {
             state.update();
