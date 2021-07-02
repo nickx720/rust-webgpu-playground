@@ -59,7 +59,7 @@ const VERTICES: &[Vertex] = &[
         position: [0.44147372, 0.2347359, 0.0],
         tex_coords: [0.9414737, 0.2652641],
     }, // E
-];
+    ];
 
 const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4, /* padding */ 0];
 
@@ -78,6 +78,11 @@ struct State {
     #[allow(dead_code)]
     diffuse_texture: texture::Texture,
     diffuse_bind_group: wgpu::BindGroup,
+    #[allow(dead_code)]
+    wolf_texture: texture::Texture,
+    wolf_bind_group: wgpu::BindGroup,
+    is_space_pressed:bool,
+
 }
 
 impl State {
@@ -93,7 +98,7 @@ impl State {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
             })
-            .await
+        .await
             .unwrap();
         let (device, queue) = adapter
             .request_device(
@@ -161,6 +166,52 @@ impl State {
             label: Some("diffuse_bind_group"),
         });
 
+        let wolf_bytes = include_bytes!("wolf-howl.png");
+        let wolf_texture =
+            texture::Texture::from_bytes(&device, &queue, wolf_bytes, "wolf-howl.png").unwrap();
+
+        let wolf_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler {
+                            comparison: false,
+                            filtering: true,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("wolf_bind_group_layout"),
+            });
+
+        let wolf_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&wolf_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&wolf_texture.sampler),
+                },
+            ],
+            label: Some("wolf_bind_group"),
+        });
+
+
         let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             flags: wgpu::ShaderFlags::all(),
@@ -170,7 +221,7 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&texture_bind_group_layout],
+                bind_group_layouts: &[&texture_bind_group_layout,],
                 push_constant_ranges: &[],
             });
 
@@ -239,6 +290,9 @@ impl State {
             num_indices,
             diffuse_texture,
             diffuse_bind_group,
+            wolf_texture,
+            wolf_bind_group,
+            is_space_pressed:false
         }
     }
 
@@ -249,9 +303,20 @@ impl State {
         self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
     }
 
-    #[allow(unused_variables)]
+    
     fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+match event {
+    WindowEvent::KeyboardInput {
+        input: 
+            KeyboardInput {  state,
+            virtual_keycode: Some(VirtualKeyCode::Space), .. },
+            ..
+    } => {
+        self.is_space_pressed = *state == ElementState::Pressed;
+            true
+    },
+    _=> false,
+}
     }
 
     fn update(&mut self) {}
@@ -284,8 +349,14 @@ impl State {
                 depth_stencil_attachment: None,
             });
 
+            let bind_group = if self.is_space_pressed {
+                &self.wolf_bind_group
+            } else {
+                &self.diffuse_bind_group
+            };
+
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(0, bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
