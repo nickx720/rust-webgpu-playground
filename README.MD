@@ -1,5 +1,5 @@
 ### WebGPU Using Rust
 
-Chapter 4
-Cleaning things up -- Done
-https://sotrh.github.io/learn-wgpu/beginner/tutorial5-textures/#textureviews-and-samplers
+Chapter 5
+The uniform buffer
+https://sotrh.github.io/learn-wgpu/beginner/tutorial6-uniforms/#the-uniform-buffer
