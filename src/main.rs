@@ -92,6 +92,24 @@ impl Camera {
     }
 }
 
+#[repr(C)]
+#[derive(Debug,Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Uniforms {
+    view_proj: [[f32;4];4],
+}
+
+impl Uniforms {
+    fn new()-> Self {
+        use cgmath::SquareMatrix;
+        Self {
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
+    fn update_view_proj(&mut self,camera: &Camera) {
+        self.view_proj = camera.build_view_projection_matrix().into();
+    }
+}
+
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -199,11 +217,22 @@ impl State {
             target:(0.0,0.0,0.0).into(),
             // which way is "up"
             up: cgmath::Vector3::unit_y(),
-            asepct: sc_desc.width as f32 / sc_desc.height as f32,
+            aspect: sc_desc.width as f32 / sc_desc.height as f32,
             fovy: 45.0,
             znear: 0.1,
             zfar: 100.0,
-        }
+        };
+
+        let mut uniforms = Uniforms::new();
+        uniforms.update_view_proj(&camera);
+
+        let uniform_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor{
+                label:Some("Unform Buffer"),
+                contents: bytemuck::cast_slice(&[uniforms]),
+                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            }                
+            );
 
         let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
