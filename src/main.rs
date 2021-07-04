@@ -59,7 +59,7 @@ const VERTICES: &[Vertex] = &[
         position: [0.44147372, 0.2347359, 0.0],
         tex_coords: [0.9414737, 0.2652641],
     }, // E
-];
+    ];
 
 const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4, /* padding */ 0];
 
@@ -70,6 +70,7 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.5, 0.0,
     0.0, 0.0, 0.5, 1.0,
 );
+
 
 struct Camera {
     eye: cgmath::Point3<f32>,
@@ -89,23 +90,38 @@ impl Camera {
     }
 }
 
+struct UniformStaging {
+    camera: Camera,
+    modal_rotation: cgmath::Deg<f32>,
+}
+
+impl UniformStaging {
+    fn new(camera: Camera) -> Self {
+        Self {
+            camera,
+            modal_rotation: cgmath::Deg(0.0),
+        }
+    }
+    fn update_uniforms(&self, uniforms: &mut Uniforms) {
+        uniforms.model_view_proj = (OPENGL_TO_WGPU_MATRIX * self.camera.build_view_projection_matrix() * cgmath::Matrix4::from_angle_z(self.modal_rotation)).into();
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
-    view_proj: [[f32; 4]; 4],
+    model_view_proj: [[f32; 4]; 4],
 }
 
 impl Uniforms {
     fn new() -> Self {
         use cgmath::SquareMatrix;
         Self {
-            view_proj: cgmath::Matrix4::identity().into(),
+            model_view_proj: cgmath::Matrix4::identity().into(),
         }
     }
 
-    fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_proj = (OPENGL_TO_WGPU_MATRIX * camera.build_view_projection_matrix()).into();
-    }
+
 }
 
 struct CameraController {
@@ -140,7 +156,7 @@ impl CameraController {
                         virtual_keycode: Some(keycode),
                         ..
                     },
-                ..
+                    ..
             } => {
                 let is_pressed = *state == ElementState::Pressed;
                 match keycode {
@@ -223,11 +239,11 @@ struct State {
     diffuse_texture: texture::Texture,
     diffuse_bind_group: wgpu::BindGroup,
     // NEW!
-    camera: Camera,
     camera_controller: CameraController,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
+    uniform_staging: UniformStaging,
 }
 
 impl State {
@@ -243,7 +259,7 @@ impl State {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
             })
-            .await
+        .await
             .unwrap();
         let (device, queue) = adapter
             .request_device(
@@ -323,7 +339,8 @@ impl State {
         let camera_controller = CameraController::new(0.2);
 
         let mut uniforms = Uniforms::new();
-        uniforms.update_view_proj(&camera);
+        let uniform_staging = UniformStaging::new(camera);
+        uniform_staging.update_uniforms(&mut uniforms);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
@@ -433,11 +450,11 @@ impl State {
             num_indices,
             diffuse_texture,
             diffuse_bind_group,
-            camera,
             camera_controller,
             uniform_buffer,
             uniform_bind_group,
             uniforms,
+            uniform_staging,
         }
     }
 
@@ -446,8 +463,7 @@ impl State {
         self.sc_desc.width = new_size.width;
         self.sc_desc.height = new_size.height;
         self.swap_chain = self.device.create_swap_chain(&self.surface, &self.sc_desc);
-
-        self.camera.aspect = self.sc_desc.width as f32 / self.sc_desc.height as f32;
+        self.uniform_staging.camera.aspect = self.sc_desc.width as f32 / self.sc_desc.height as f32;
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -455,8 +471,9 @@ impl State {
     }
 
     fn update(&mut self) {
-        self.camera_controller.update_camera(&mut self.camera);
-        self.uniforms.update_view_proj(&self.camera);
+        self.camera_controller.update_camera(&mut self.uniform_staging.camera);
+        self.uniform_staging.modal_rotation += cgmath::Deg(2.0);
+        self.uniform_staging.update_uniforms(&mut self.uniforms);
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
