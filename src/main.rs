@@ -1,6 +1,6 @@
 use std::iter;
 
-use cgmath::{InnerSpace, Rotation3, Zero};
+use cgmath::*;
 use wgpu::util::DeviceExt;
 use winit::{
     event::*,
@@ -65,7 +65,6 @@ const VERTICES: &[Vertex] = &[
 const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4, /* padding */ 0];
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
-const NUM_INSTANCES : u32 = NUM_INSTANCES_PER_ROW * NUM_INSTANCES_PER_ROW;
 const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
 
 #[rustfmt::skip]
@@ -593,9 +592,9 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
 
         self.queue.submit(iter::once(encoder.finish()));
